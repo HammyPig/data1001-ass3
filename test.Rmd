@@ -1,0 +1,28 @@
+```{r}
+data = read.csv("data/gbr.csv")
+library("tidyverse")
+library("multicon")
+
+rms_gaps = function(x) sqrt(mean((mean(x)-x)^2))
+x= c(0,2,3,4,6)
+popsd(x)
+rms_gaps(x)
+
+```
+
+```{r}
+names(data)
+str(data)
+hist(data$STATION_ID)
+ggplot(data)
+```
+
+```{r}
+sleep = c(0,4,5,7,8,9,10,12,11,2)
+sd(sleep)
+popsd()
+mean()
+pnorm()-pnorm()
+over = sleep-9
+median(over)
+```

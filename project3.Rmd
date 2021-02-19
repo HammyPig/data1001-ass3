@@ -1,0 +1,558 @@
+---
+title: "What is the Human Impact on the Great Barrier Reef?"
+author: "500483529"
+subtitle: "Project 3"
+date: "University of Sydney | DATA1001 | April 2020"
+output:
+  html_document:
+    fig_caption: yes
+    number_sections: yes
+    self_contained: yes
+    theme: united
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+---
+
+<br>
+
+# Recommendation
+
+The data suggests increased human activity has led to heightened levels of pollution, causing higher turbidity in the surrounding waters of the reef. This then acts as a precursor to extreme levels of nutrients followed by a rapid decline, which disrupts and damages coral life severely. 
+
+The Australian Government and GBRMPA (Great Barrier Reef Marine Park Authority) is advised that in order to combat this arising issue, it is recommended to reduce pollution run-off (such as sewage, agriculture and aquaculture waste) especially during the Summer months.
+
+Heightened temperatures may have a similar influence, however, evidence is inconclusive due to a lack of data; further investigation is required.
+
+```{r message=F, results='hide'}
+# hi how are you
+# Packages
+library("tidyverse")
+theme_set(theme_classic())
+library("RColorBrewer")
+library("ggpubr")
+library("rnaturalearth")
+library("rnaturalearthdata")
+library("sf")
+
+gbr_orig = read.csv("data/gbr.csv")
+gbr = gbr_orig
+names(gbr)
+# Latitude up or down (negative is lower)
+# Longitude left or right (positive is right)
+# Secchi depth water transparency - better transparency gooder
+# Acoustic depth hearing water depth
+# temperature - higher is worse because global warming and such
+# salinity high salinity better saltybois
+
+check_var = function(var) {
+  #print(paste("No. of Variables =",length(levels(var))))
+  print(paste("Entries =", dim(filter(gbr, var != ""))[1], "of", dim(gbr)[1]))
+  print("-------------------------")
+}
+
+# Colour Creator (pretty neat)
+create_colour = function(col, n, reverse=F) {
+  new_palette = colorRampPalette(brewer.pal(8, col))(n)
+  if (reverse) {
+    return(rev(new_palette))
+  }
+  return(new_palette)
+}
+
+for (i in 1:length(names(gbr))) {
+  print(names(gbr)[i])
+  check_var(gbr[i])
+}
+
+#format is 15/01/2009  9:39:00 AM, converts to 24 hour time
+for (i in 1:dim(gbr)[1]) {
+  print(i)
+  datetime = strsplit(as.character(gbr$SAMPLE_TIME[i]), " ")[[1]]
+  split_time = strsplit(datetime, "/")[[1]]
+  time = strsplit(datetime[2], ":")[[1]]
+  gbr$time[i] = as.numeric(time[1]) + as.numeric(time[2])/60
+}
+
+gbr$date = as.Date(gbr$SAMPLE_TIME, format="%d/%m/%y") # formats to date
+gbr$time = as.numeric(gbr$time)
+gbr = mutate(gbr, year = substring(as.character(date), 1, 4)) # year
+gbr = mutate(gbr, month = as.numeric(substring(as.character(date), 6, 7)))
+gbr = mutate(gbr, months = 12*(as.numeric(year) - 1992)+as.numeric(month)-11) # months
+gbr = mutate(gbr, days = as.numeric(date)) # days
+gbr = mutate(gbr, seasons = ceiling(months/3)) # seasons
+gbr = mutate(gbr, season = seasons%%4) # season
+
+# season levels
+gbr$season = factor(gbr$season, levels = c("1", "2", "3", "0"))
+levels(gbr$season) = c("Summer", "Autumn", "Winter", "Spring")
+
+# months
+gbr$month = factor(gbr$month, levels = c("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"))
+levels(gbr$month) = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+gbr$months = as.factor(gbr$months)
+gbr$seasons = as.factor(gbr$seasons)
+gbr$year = as.factor(gbr$year)
+
+# trichodesmium cleaning
+levels(gbr$TRICHODESMIUM)[levels(gbr$TRICHODESMIUM)=="a"] = "Absent"
+levels(gbr$TRICHODESMIUM)[levels(gbr$TRICHODESMIUM)=="A"] = "Absent"
+levels(gbr$TRICHODESMIUM)[levels(gbr$TRICHODESMIUM)=="p"] = "Present"
+levels(gbr$TRICHODESMIUM)[levels(gbr$TRICHODESMIUM)=="P"] = "Present"
+levels(gbr$TRICHODESMIUM)[levels(gbr$TRICHODESMIUM)==""] = "No Record"
+
+# dataset for entries with temperature
+gbr_temp = filter(gbr, date > "2006-5-5")
+```
+
+<br>
+
+# Evidence of Human Impact
+
+The GBR dataset was sourced from the [gbr.csv]("http://www.maths.usyd.edu.au/u/UG/JM/DATA1001/r/current/projects/2020data/GBR.csv") file. The dataset rows consists of over 19000 unique samples of the reef, each with a maximum of 14 variable columns (with a limitation being the majority of samples lacking all 14). These variables are structured both as quantitative and qualitative data.
+
+From the provided variables, it was determined that humans can directly affect only two elements:
+
+- Temperature: human activity - largely from greenhouse gas emissions - being linked to more extreme temperatures.
+- Secchi Depth: a measure of water clarity, with shallower depths being strongly correlated to the detection of human pollution.
+
+These were then investigated.
+
+<br>
+
+## Temperature
+
+### Is temperature related to Chlorophyll A levels?
+
+**Chlorophyll A has a consistent positive trend with increased temperature, with more consistency if grouped seasonally (figure 1, 2 and 3). Nonetheless, this relationship is potentially reliant on confounding seasonal changes rather than purely temperature, as no direct linear connection could be found (figure 4).**
+
+```{r, warning=F, message=F}
+# november is weird, chl_a over months
+ggplot(gbr_temp, aes(x=months, y=CHL_A, fill=month)) + 
+  geom_boxplot(outlier.shape=NA) + labs(fill = NA) + 
+  scale_x_discrete(breaks=c("170","182", "194"), labels=c("2007", "2008", "2009")) + 
+  coord_cartesian(ylim=c(0, 2)) + 
+  labs(title="Figure 1: Monthly Chlorophyll A Levels May 2006 - Dec 2008", x="Date", y="Chlorophyll A (mg/m^3)", fill="Month")
+
+# temperature months over time
+ggplot(gbr_temp, aes(x=months, y=TEMPERATURE, fill=month)) + 
+  geom_boxplot(outlier.shape=NA) + 
+  scale_x_discrete(breaks=c("170","182", "194"), labels=c("2007", "2008", "2009")) + 
+  labs(title="Figure 2: Average Sea Temperature by Month", x="Date", y="Temperature (°C)", fill="Month")
+
+# grouping seasons creates more consistent trend with chl_a
+ggplot(gbr_temp, aes(x=seasons, y=CHL_A, fill=season)) + 
+  geom_boxplot(outlier.shape=NA) + 
+  coord_cartesian(ylim=c(0, 2)) + 
+  labs(fill = NA) + 
+  scale_x_discrete(breaks=c("57","61", "65"), labels=c("2007", "2008", "2009")) + 
+  labs(title="Figure 3: Chlorophyll A Levels by Season", x="Date", y="Chlorophyll A (mg/m^3)", fill="Season")
+
+# no correlation to chl_A, only because of huge range and distorted scales
+ggplot(gbr, aes(x=TEMPERATURE, y=CHL_A, color=TEMPERATURE)) + 
+  geom_point() + geom_smooth(method="lm", fill="green") + 
+  xlim(20, 30) + 
+  scale_color_continuous(low="blue", high="red", limits=c(20, 30)) + 
+  labs(title="Figure 4: Chlorophyll A and Sea Temperature", x="Temperature (°C)", y="Chlorophyll A (mg/m^3)") + coord_cartesian(ylim=c(0, 2)) + 
+  theme(legend.position="none")
+```
+
+<br>
+
+### Are chlorophyll A levels rising in sync with temperatures?
+
+**Chlorophyll A levels are increasing in volatility, with higher quartile ranges over time (figure 5). However, the data could potentially be misrepresented due to a corresponding decline of sample counts, skewing the data in unpredictable manners (figure 6).**
+
+```{r, warning=F, message=F}
+# temperature not increasing ig higher ranges happening though
+ggplot(gbr, aes(x=months, y=CHL_A, fill=as.factor(months))) + 
+  geom_boxplot(outlier.shape=NA, coef=0) + 
+  coord_cartesian(ylim=c(0, 3)) + 
+  theme(legend.position="none") + 
+  scale_fill_manual(values = create_colour("RdYlBu", length(levels(gbr$months)), T)) + 
+  scale_x_discrete(breaks=c("38" ,"86","134", "182"), labels=c("1996", "2000", "2004", "2008")) + 
+  labs(title="Figure 5: Chlorophyll A levels Dec 1993 - Dec 2008", x="Date", y="Chlorophyll A (mg/m^3)")
+
+# unreliable however, decline in count
+ggplot(gbr, aes(x=months, fill=months)) + 
+  geom_bar() + 
+  scale_x_discrete(breaks=c("38" ,"86","134", "182"), labels=c("1996", "2000", "2004", "2008")) + 
+  scale_fill_manual(values = create_colour("RdYlBu", length(levels(gbr$months)), T)) + 
+  theme(legend.position="none") + 
+  labs(title="Figure 6: No. of Samples Dec 1993 - Dec 2008", x="Date", y="Count")
+```
+
+<br>
+
+### Other findings
+
+```{r, warning=F, message=F}
+# higher heat causes lower salinity
+ggplot(gbr, aes(x=TEMPERATURE, y=SALINITY, color=TEMPERATURE)) + 
+  geom_point() + 
+  geom_smooth(method="lm") + 
+  xlim(20, 30) + ylim(30, 50) + 
+  coord_cartesian(ylim=c(25, 50)) + 
+  scale_color_continuous(low="blue", high="red", limits=c(20, 30)) + 
+  stat_cor(label.x=20, label.y=47) + 
+  stat_regline_equation(label.x=20, label.y=49) + 
+  labs(title="Figure 7: Salinity Levels vs Temperature", x="Temperature (°C)", y="Salinity (g/L)") + 
+  theme(legend.position="none")
+```
+
+**Figure 7 shows a 1°C increase in water temperatures causes salinity to lower by a factor of 0.33 parts per thousand (-0.33g/L/°C).**
+
+<br>
+
+<br>
+
+## Secchi Depth
+
+### Is secchi depth getting shallower in depth over time?
+
+**The frequency of deeper secchi depths (clearer water) has decreased significantly from 1992 to 2008 (figure 8).**
+
+```{r, warning=F, message=F}
+# overtime secchi depth
+ggplot(gbr, aes(x=date, y=SECCHI_DEPTH)) + 
+  geom_point(aes(color=days)) + 
+  geom_smooth(color="red", method="lm") + 
+  stat_function(color="red", size=1, fun=function(x) -0.0035*as.numeric(difftime(x, "1992-12-8", units="days"))+31) + 
+  stat_cor(label.x = 8500, label.y = 45) + 
+  stat_regline_equation(label.x = 8500, label.y = 50) + xlim(as.Date(c("1992-12-8", "2008-5-26"))) + 
+  scale_color_continuous(low="#2ec4b6", high="#3b6064") + 
+  labs(title="Figure 8: Secchi Depth Dec 1992 - May 2008", x="Date", y="Secchi Depth (m)") + 
+  theme(legend.position="none")
+```
+
+<br>
+
+### Does reduced secchi depth correlate to nutrition levels?
+
+**Lower secchi depth (dirtier water) is the precursor (or mathematically, the first derivative with an adjusted range) of higher chlorophyll A levels.** (Appendix A) 
+
+**Directly compared, chlorophyll A levels exponentially increase with shallow secchi depth (figure 9 and 10), commonly reaching** $2mg/m^3$ **at around 0 metres of secchi depth (zero visibility).**
+
+```{r, warning=F, message=F}
+# HUMAN WASTE CAUSES CHL_A
+# shouldnt be a unique location, so it must be human waste and not naturally occuring... # 3 layers of exponential
+
+ggplot(gbr, aes(x=SECCHI_DEPTH, y=CHL_A)) + 
+  geom_count(aes(color=..n..)) + 
+  stat_function(color="red", size=1.25, fun=function(x) 3*exp(-0.5*x-0.5)+0.2) + 
+  stat_function(alpha=0.1, geom="area", fill="red", size=1.25, fun=function(x) 3.5*exp(-0.09*x-0.09)+0.2) + 
+  stat_function(alpha=0.1, geom="area", fill="blue", size=1.25, fun=function(x) 5.8*exp(-0.07*x-0.07)+0.2) + 
+  ylim(0, 10) + 
+  stat_function(alpha=0.3, geom="area", fill="lightblue", size=1.25, fun=function(x) ifelse(x<24, 35*exp(-0.15*x-0.01)+0.2, 5.8*exp(-0.07*x-0.07)+0.2)) + 
+  ylim(0, 11) + 
+  coord_cartesian(ylim=c(0, 10)) + 
+  scale_color_continuous(low="blue", high="red") + 
+  scale_size_area(max_size=1) + 
+  annotate(geom="rect", xmin=0, xmax=8, ymin=0, ymax=Inf, fill="lightblue", alpha=0.3) +
+  theme(legend.position="none") + 
+  labs(title="Figure 9: Secchi Depth and Chlorophyll A Levels", x="Secchi Depth (m)", y="Chlorophyll A (mg/m^3)")
+```
+<div align="center">
+<img src="figure20.jpg" width="50%" height="50%">
+</div>
+```{r, warning=F, message=F}
+# secchi depth and chl_a
+ggplot(gbr, aes(x=SECCHI_DEPTH, y=CHL_A)) + 
+  geom_hex() + 
+  stat_function(color="green", size=1.25, fun=function(x) 3*exp(-0.5*(x+1))+0.2) + 
+  scale_fill_continuous(low="blue", high="red") + 
+  labs(title="Figure 10: Secchi Depth and Chlorophyll A Levels Heat Map", x="Secchi Depth (m)", y="Chlorophyll A (mg/m^3)") + 
+  ylim(0, 2)
+```
+
+Model: $y=3e^{-0.5(x+1)}+0.2$
+
+```{r, warning=F, message=F}
+#-cos instead of sin temperature (or chl_a)
+ggplot(gbr_temp, aes(x=date, y=SECCHI_DEPTH, color=month)) + 
+  geom_point(alpha=0.2) + 
+  stat_function(size=1, color="red", fun=function(x) -21+2*cos(2/365.2422*pi*as.numeric(x-as.Date("2006-5-5")))+mean(gbr$TEMPERATURE, na.rm=T)) + 
+  xlim(as.Date(c("2006-5-5", "2008-5-26"))) + 
+  stat_function(linetype=2, color="blue", fun=function(x) -21-2*sin(2/365.2422*pi*as.numeric(x-as.Date("2006-5-5")))+mean(gbr$TEMPERATURE, na.rm=T)) + 
+  labs(title="Figure 11: Secchi Depth May 2006 - May 2008", x="Date", y="Secchi Depth (m)", color="Month") + 
+  annotate(linetype=2, color="blue", geom="segment", x=as.Date("2008-5-20"), xend=as.Date("2008-4-20"), y=30, yend=30) + 
+  annotate(geom="text", x=as.Date("2008-4-5"), y=30, label="Chlorophyll A (adjusted range)", hjust=1) + 
+  annotate(size=1, color="red", geom="segment", x=as.Date("2008-5-20"), xend=as.Date("2008-4-20"), y=27, yend=27) + 
+  annotate(geom="text", x=as.Date("2008-4-5"), y=27, label="Secchi Depth", hjust=1)
+```
+
+Models: 
+
+- $y_{sd}=2cos(\frac{2\Pi}{365} x)-4.4$
+- $y_{chl\_a}=-2sin(\frac{2\Pi}{365} x)-4.4$
+
+<br>
+
+### Other findings
+
+```{r, warning=F, message=F}
+# secchi_depth
+# no connection to temperature
+ggplot(gbr, aes(x=SECCHI_DEPTH, y=TEMPERATURE)) + 
+  geom_point(aes(color=month)) + 
+  geom_smooth() + 
+  xlim(1, 9) + 
+  labs(title="Figure 12: Secchi Depth vs Temperature", x="Secchi Depth (m)", y="Temperature (°C)", color="Month")
+```
+
+**Secchi depth does not correlate to water temperature (figure 12).**
+
+```{r, warning=F, message=F}
+# no correlation to salinity
+ggplot(gbr, aes(x=SECCHI_DEPTH, y=SALINITY)) + 
+  geom_point(aes(color=SECCHI_DEPTH)) + 
+  geom_smooth() + 
+  ylim(30, 50) + 
+  xlim(0, 11) + 
+  scale_color_continuous(low="#3b6064", high="#2ec4b6", limits=c(1, 11)) + 
+  labs("Figure 13: Secchi Depth vs Salinity", x="Secchi Depth (m)", y="Salinity (g/L)")
+```
+
+**Secchi depth and salinity have little to no correlation (figure 13).**
+
+```{r warning=F, message=F}
+# increased trichodesmium
+ggplot(gbr, aes(x=SECCHI_DEPTH)) + 
+  geom_histogram(bins=15, position="fill", binwidth=1, aes(fill=TRICHODESMIUM)) + 
+  xlim(0, 15) + 
+  labs(title="Figure 14: Secchi Depth and Trichodesmium Presence", x="Secchi Depth (m)", fill="Trichodesmium Presence") + 
+  scale_y_continuous(labels=scales::percent)
+
+# chl_a means low nutrition?
+ggplot(gbr, aes(x=CHL_A)) + 
+  geom_histogram(bins=15, aes(fill=TRICHODESMIUM), position="fill") + 
+  xlim(0, 1) + 
+  labs(title="Figure 15: Chlorophyll A and Trichodesmium Presence", x="Chlorophyll A (mg/m^3)", fill="Trichodesmium Presence") + 
+  scale_y_continuous(labels=scales::percent)
+
+# temperature no correlation
+ggplot(gbr, aes(x=TEMPERATURE)) + 
+  geom_histogram(bins=15, position="fill", aes(fill=TRICHODESMIUM)) + 
+  xlim(24, 30) + 
+  labs(title="Figure 16: Temperature and Trichodesmium Presence", x="Temperature (°C)", fill="Trichodesmium Presence") + 
+  scale_y_continuous(labels=scales::percent)
+```
+
+**Chlorophyll A levels and secchi depth have a strong connection to Trichodesmium presence, providing more backing to the previous observation of precursor behaviour (figure 14 and 15).** (Appendix B)
+
+**The previous connection between temperature and chlorophyll A has less credibility, considering its lack of connection to Trichodesmium numbers, unlike its counterpart. (figure 16)**
+
+<br>
+
+<br>
+
+# Other Evidence and Conclusions
+
+The main conclusions drawn from the dataset were three key takeaways:
+
+- Higher temperatures cause a decline in salinity levels
+- Secchi depth is reducing (worsening) over time
+- Shallow secchi depth is a precursor to heightened chlorophyll A levels, which then drops off
+
+How do these findings affect coral reef health?
+
+As affected salinity rates rarely leave the suitable range of 32 to 42g/L, the threat that temperature will largely reducing salinity is minimal for the present day. [1]
+
+On the other hand, with secchi depth being a measure of water cleanliness, a linear decrease of such a large magnitude would leave human activity and pollution as the prime culprit. [2][6][7]
+
+This human activity (such as agricultural runoff and aquaculture waste) then leads to an increase in chlorophyll A levels, causing heightened nutrients and more likely outbreaks of “coral-eating crown-of-thorns starfish,  lower coral diversity, algal blooms… coral bleaching and diseases”. This then depletes the nutritional levels, leaving the system inbalanced. For the sake of the reef's long-term health, this needs to be addressed. [3][4][6]
+
+<br>
+
+<br>
+
+# Experiment Study (Read Optionally)
+
+*In this section, an exploration of the dataset is done, giving feedback on sample methods as well as recommendations for future surveys. This is an optional read.*
+
+<br>
+
+With such a large-scale dataset of real-world observations, the consideration of possible confounders and relationships is imperative to finding valid conclusions.
+
+Factors which are purely dependable on survey methods (such as the position and time of a sample) can potentially alter results in unpredictable manners, hence, an exploration of these variables was done with a few suggestions for future sample recording.
+
+**Conclusion and Recommendations: Location, time and quality of samples are seen as not very consistent, reducing the datasets credibility of fair testing. Consistent sampling of these differing times and zones would minimise the confounding effects found below. Many variables were left out in numerous samples, denying whole timeframes from being recorded, potentially losing valuable insights.**
+
+**For the sake of the reef's longevity, the inclusion of other variables in future samples (such as those related to the tourism industry) would also add more insight to the true nature of human impact, and may provide more conclusions**
+
+**Additionally, better methods to specifically measure water transparency are also necessary, as the secchi depth method is limited by the sample area's physical depth. Alternative methods would be recommended in future surveys.**
+
+<br>
+
+## Position
+
+### Latitude & Longitude
+
+**On average, lower latitudes have lower temperatures, with minimum temperatures dropping at a ratio of -0.7°C/°S, and maximum temperatures at -0.1°C/°S (figure 17). An inconsistency of sample placement is also noticed.**
+
+```{r, warning=F, message=F}
+# Natural Effects - Both Latitude and Acoustic Depth affect temperature
+ggplot(gbr_temp, aes(x=LATITUDE, y=TEMPERATURE)) + 
+  geom_point(aes(color=month)) + 
+  geom_smooth(method="lm") + 
+  scale_x_reverse() + 
+  stat_function(color="blue", size=1, fun=function(x) 0.7*(x+12)+25) + 
+  stat_function(color="blue", size=1, fun=function(x) 0.1*(x+12)+30) + 
+  annotate("segment", x=-12, xend=-17, y=25, yend=19, color="blue") + 
+  annotate("segment", x=-18, xend=-21, y=25, yend=18, color="red") + 
+  annotate("segment", x=-23, xend=-25, y=17, yend=15, color="green") + 
+  annotate(size=2, color="blue", geom="point", x=-14.5, y=22) + 
+  annotate(size=2, color="red", geom="point", x=-19.5, y=21.5) + 
+  annotate(size=2, color="green", geom="point", x=-24, y=16) + 
+  stat_cor(label.x=12, label.y = 16) + 
+  stat_regline_equation(label.x = 12, label.y = 18) + 
+  labs(title="Figure 17: Sea Temperature vs Latitude", x="Latitude", y="Temperature (°C)", color="Month")
+
+ggplot(gbr_temp, aes(x=LATITUDE)) + 
+  geom_histogram(aes(fill=..x..), binwidth=1) + 
+  scale_fill_continuous(low="red", high="blue") + 
+  scale_x_reverse() + 
+  annotate("rect", xmin=-12, xmax=-17, ymin=-Inf, ymax=Inf, alpha=0.1, fill="blue") + 
+  annotate("rect", xmin=-18, xmax=-21, ymin=-Inf, ymax=Inf, alpha=0.1, fill="red") + 
+  annotate("rect", xmin=-23, xmax=-25, ymin=-Inf, ymax=Inf, alpha=0.1, fill="green") + 
+  labs(title="Figure 18: No. of Samples per Latitude, Grouped by Temperature Anomalies", x="Latitude", y="Count")
+
+ggplot(ne_countries(scale="medium", returnclass="sf")) + 
+  geom_sf(fill="antiquewhite") + 
+  coord_sf(xlim=c(143, 158), ylim=c(-26, -11), expand=FALSE) + 
+  geom_count(data=gbr_temp, aes(x=LONGITUDE, y=LATITUDE, color=year)) + 
+  theme_bw() + 
+  scale_size_area(max_size=3) + 
+  theme(panel.grid.major=element_line(color=gray(.5), linetype="dashed", size=0.5), panel.background=element_rect(fill="aliceblue")) + 
+  annotate(geom="text", x=145.4781, y=-17.1186, label="Cairns", fontface="italic", color="grey22", size=2.5, hjust=1) + annotate(geom="point", x=145.7781, y=-16.9186) + 
+  annotate(geom="text", x=146.5169, y=-19.4590, label="Townsville", fontface="italic", color="grey22", size=2.5, hjust=1) + annotate(geom="point", x=146.8169, y=-19.2590) + 
+  annotate("rect", ymin=-12, ymax=-17, xmin=-Inf, xmax=Inf, alpha=0.1, fill="blue") + 
+  annotate("rect", ymin=-18, ymax=-21, xmin=-Inf, xmax=Inf, alpha=0.1, fill="red") + 
+  annotate("rect", ymin=-23, ymax=-25, xmin=-Inf, xmax=Inf, alpha=0.1, fill="green") + 
+  labs(x="Longitude", y="Latitude", color="Year", title="Figure 19: Geographic Location of Entries (Grouped)")
+```
+
+<br>
+
+### Depth
+
+**Lower water depths converge to reduced ranges of minimum and maximum temperatures (figure 20).**
+
+```{r, warning=F, message=F}
+# colder colds in shallow waters?
+ggplot(filter(gbr_temp), aes(x=ACOUSTIC_DEPTH, y=TEMPERATURE)) + 
+  geom_point(aes(color=month)) + 
+  geom_smooth(color="red", method="lm", se=F) + 
+  xlim(0, 100) + 
+  stat_function(color="red", fun=function(x) 0.11*x+15) + 
+  stat_function(color="red", fun=function(x) -0.01*x+31) + 
+  annotate("segment", x=0, xend=45, y=31, yend=28.5, color="blue", size=1) + 
+  annotate("point", x=22.5, y=29.75, color="blue", size=3) + 
+  labs(title="Figure 20: Water Depth Temperatures", x="Acoustic Depth (m)", y="Temperature (°C)") + 
+  stat_function(linetype=2, color="blue", fun=function(x) -0.056*x+31)
+
+ggplot(gbr_temp, aes(x=ACOUSTIC_DEPTH)) + 
+  geom_histogram(aes(fill=..x..), binwidth=1) + 
+  scale_fill_continuous(low="blue", high="red") + 
+  xlim(0, 100) + 
+  labs(title="Figure 21: No. of Entries and Acoustic Depth", x="Acoustic Depth (m)", y="Count") + 
+  annotate("rect", xmin=0, xmax=45, ymin=-Inf, ymax=Inf, alpha=0.1, fill="blue")
+```
+
+<br>
+
+## Date & Time
+
+**The time of day does not affect temperature at any significant level (figure 22). Time of year fluctuates temperatures through the seasons, with a range of roughly 6.6°C. A drop in temperatures mid 2007 is speculated to be the result of a La Niña event [5][8] (figure 23).**
+
+```{r, warning=F, message=F}
+ggplot(filter(gbr, year != "2007"), aes(x=time, y=TEMPERATURE)) + 
+  geom_point(aes(color = month), alpha=0.25) + 
+  geom_smooth(method="lm") + 
+  labs(title="Figure 22: Temperature vs Time of Day", x="Time (24 hour time)", y="Temperature", color="Month")
+
+# temperature over time - lanina event noted
+ggplot(gbr_temp, aes(x=date, y=TEMPERATURE)) + 
+  geom_point(alpha=0.25, aes(color=month)) + 
+  geom_smooth() + xlim(as.Date(c("2006-5-5", "2008-11-23"))) + 
+  stat_function(color="red", fun=function(x) 0.5-3.3*sin(2/365.2422*pi*as.numeric(x-as.Date("2006-5-5")))+mean(gbr$TEMPERATURE, na.rm=T)) + stat_function(color="red", linetype=2, fun=function(x) 0.5+mean(gbr$TEMPERATURE, na.rm=T)) + annotate("rect", ymin=-Inf, ymax=Inf, xmin=as.Date("2007-6-1"), xmax=as.Date("2008-2-1"), alpha=0.1, fill="blue") + 
+  annotate(geom="text", x=as.Date("2007-10-1"), y=34, label="La Niña Event", color="grey22", size=3) + 
+  labs(title="Figure 23: Sea Temperature May 2006 - Dec 2008", x="Date", y="Temperature (°C)", color="Month")
+```
+
+Model: $y=sin(\frac{2\Pi}{365} x)+24.89$
+
+<br>
+
+## Other Findings
+
+**In some cases, the limitation exists that secchi depth relies on the physical depth of the sample area (figure 24), rendering those recordings to be misleading representations of water transparency. Nonetheless, sufficient numbers of samples are unaffected by this factor (figure 25), therefore, the data is not invalid and analysis can still be done.**
+
+```{r, warning=F, message=F}
+#secchi depth being hardlocked by acoustic depth - not very reliable
+ggplot(gbr, aes(x=ACOUSTIC_DEPTH, y=SECCHI_DEPTH)) + 
+  geom_point() + ylim(0, 50) +
+  stat_function(size=1, color="red", fun=function(x) x) + 
+  xlim(0, 32) + 
+  labs(title="Figure 24: Secchi Depth and Acoustic Depth", x="Acoustic Depth (m)", y="Secchi Depth (m)") + 
+  annotate(geom="text", label="y=x", x=29, y=22)
+
+identical = dim(filter(gbr, ACOUSTIC_DEPTH==SECCHI_DEPTH))[1]
+non_identical = dim(filter(gbr, ACOUSTIC_DEPTH!=SECCHI_DEPTH))[1]
+
+cat(paste("Figure 25: Secchi Depth and Acoustic Depth Variable Analysis\n", "No. of samples with equal acoustic and secchi depths: ", identical, "\n", "No. of samples not affected: ", non_identical, "\n", "No. of samples unknown (missing values): ", dim(filter(gbr, SECCHI_DEPTH != ""))[1] - identical - non_identical, sep=""))
+
+# not enough samples (only 250/20000)
+#gbr = mutate(gbr, SECCHI_PERC = SECCHI_DEPTH/ACOUSTIC_DEPTH)
+#sort(gbr$SECCHI_PERC, decreasing=T)
+```
+
+<br>
+
+<br>
+
+# Appendix
+
+<br>
+
+## Appendix A
+
+The behaviour of chlorophyll A and secchi depth provides a theory that as water gets dirtier due to artificial run-off, nutrient levels rise. 
+
+This sudden rise causes a sudden burst in phytoplankton, causing chlorophyll A levels to increase. Once the nutrition levels deplete, the phytoplankton population can no longer support itself, and begin to decline, along with a delayed decline of chlorophyll A levels. 
+
+<br>
+
+## Appendix B
+
+As Trichodesmium is commonly found in waters with lower nutritional value, shallow secchi depths correspond to high nutrition and vice versa, confirming the information in Appendix A regarding secchi depth.
+
+Trichodesmium is then found in places with higher chlorophyll A levels - areas with large amounts of phytoplankton, giving more evidence to suggest that these larger populations quickly consume and deplete the available nutrition. 
+
+The Trichodesmium presence, overall, provides more backing to support the precursor theory, as the likelihood of being present in low nutritional waters correspond with the cycles introduced in Appendix A.
+
+<br>
+
+<br>
+
+# References
+
+<br>
+
+1. ARC Centre of Excellence in Coral Reef Studies. (2019, February 28). Reduced salinity of seawater wreaks havoc on coral chemistry: North Queensland floods could cause 'freshwater bleaching' of GBR. ScienceDaily. Retrieved from www.sciencedaily.com/releases/2019/02/190228093626.htm
+
+2. Bruckner, M. (2020). Measuring Lake Turbidity Using A Secchi Disk. Retrieved from https://serc.carleton.edu/microbelife/research_methods/environ_sampling/turbidity.html
+
+3. Chlorophyll a concentrations - OzCoasts. (2020). Retrieved from https://ozcoasts.org.au/indicators/biophysical-indicators/chlorophyll_a/
+
+4. Furnas, M. (2020). The Great Barrier Reef Long-Term Chlorophyll Monitoring System. Retrieved from https://eatlas.org.au/data/uuid/eb16c150-c7b4-11dc-b99b-00008a07204e
+
+5. La Niña - Detailed Australian Analysis. (2020). Retrieved from http://www.bom.gov.au/climate/enso/lnlist/
+
+6. The good and bad of nutrients (2019). Retrieved from https://www.reefplan.qld.gov.au/resources/explainers/the-good-and-bad-of-nutrients
+
+7. Turbidity and Water. (2020). Retrieved from https://www.usgs.gov/special-topic/water-science-school/science/turbidity-and-water?qt-science_center_objects=0#qt-science_center_objects
+
+8. What is La Niña and how does it impact Australia?. (2016). Retrieved from http://www.bom.gov.au/climate/updates/articles/a020.shtml
+
